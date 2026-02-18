@@ -82,7 +82,7 @@ fn draw_table(f: &mut Frame, area: Rect, app: &App) {
             Row::new(vec![
                 Cell::from(name).style(style),
                 Cell::from(status_text).style(Style::default().fg(status_color)),
-                Cell::from(time_text).style(Style::default().fg(Color::DarkGray)),
+                Cell::from(time_text).style(Style::default().fg(Color::Gray)),
             ])
         })
         .collect();
