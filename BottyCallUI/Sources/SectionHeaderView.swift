@@ -28,7 +28,8 @@ class SectionHeaderView: NSView {
         ])
     }
 
-    func configure(name: String) {
+    func configure(name: String, fontSize: CGFloat = 10) {
         nameLabel.stringValue = name
+        nameLabel.font = .monospacedSystemFont(ofSize: fontSize, weight: .regular)
     }
 }

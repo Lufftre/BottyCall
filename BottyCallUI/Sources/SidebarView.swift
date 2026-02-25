@@ -12,13 +12,20 @@ class SidebarView: NSView {
 
     private var rowViews: [SessionRowView] = []
     private var sessions: [Session] = []
+    private var groups: [SessionGroup] = []
     private var refreshTimer: Timer?
     private var selectedIndex: Int?
+    private(set) var isExpanded = false
+
+    private var currentRowHeight: CGFloat { isExpanded ? 34 : 28 }
+    private var currentHeaderHeight: CGFloat { isExpanded ? 28 : 24 }
 
     var onSessionClick: ((Session) -> Void)?
     var onSessionDrop: ((_ source: Session, _ target: Session) -> Bool)?
     var onHeightChange: ((CGFloat) -> Void)?
     var onHide: (() -> Void)?
+    var onEscapeKey: (() -> Void)?
+    private(set) var intrinsicContentHeight: CGFloat = 80
 
     override var acceptsFirstResponder: Bool { true }
 
@@ -140,9 +147,25 @@ class SidebarView: NSView {
         refreshTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
             self?.refreshTimes()
         }
+        applyHeaderFonts()
+    }
+
+    func setExpanded(_ expanded: Bool) {
+        isExpanded = expanded
+        applyHeaderFonts()
+        update(groups: groups)
+    }
+
+    private func applyHeaderFonts() {
+        let d: CGFloat = isExpanded ? 2 : 0
+        titleLabel.font    = .monospacedSystemFont(ofSize: 13 + d, weight: .bold)
+        subtitleLabel.font = .monospacedSystemFont(ofSize: 11 + d, weight: .regular)
+        emptyLabel.font    = .monospacedSystemFont(ofSize: 12 + d, weight: .regular)
+        columnHeader.applyFontSize(11 + d)
     }
 
     func update(groups: [SessionGroup]) {
+        self.groups = groups
         let selectedId = selectedIndex.flatMap {
             $0 < sessions.count ? sessions[$0].session_id : nil
         }
@@ -160,16 +183,17 @@ class SidebarView: NSView {
         for (groupIdx, group) in groups.enumerated() {
             if showHeaders {
                 if groupIdx > 0 { y += 6 }
-                let header = SectionHeaderView(frame: NSRect(x: 0, y: y, width: width, height: SectionHeaderView.headerHeight))
+                let header = SectionHeaderView(frame: NSRect(x: 0, y: y, width: width, height: currentHeaderHeight))
                 header.autoresizingMask = [.width]
-                header.configure(name: group.name)
+                header.configure(name: group.name, fontSize: isExpanded ? 12 : 10)
                 contentView.addSubview(header)
-                y += SectionHeaderView.headerHeight
+                y += currentHeaderHeight
             }
 
             for entry in group.entries {
-                let row = SessionRowView(frame: NSRect(x: 0, y: y, width: width, height: SessionRowView.rowHeight))
+                let row = SessionRowView(frame: NSRect(x: 0, y: y, width: width, height: currentRowHeight))
                 row.autoresizingMask = [.width]
+                row.applyExpanded(isExpanded)
                 let label = (group.repoPath != nil ? entry.session.git_branch : nil) ?? entry.session.slug
                 row.configure(with: entry.session, label: label, depth: entry.depth)
 
@@ -197,7 +221,19 @@ class SidebarView: NSView {
 
         let topFixed: CGFloat = 10 + titleLabel.intrinsicContentSize.height + 8 + 1 + 5 + 18 + 2
         let idealHeight = topFixed + max(y, 70)
+        intrinsicContentHeight = idealHeight
         onHeightChange?(idealHeight)
+    }
+
+    func setScrollingEnabled(_ enabled: Bool) {
+        scrollView.hasVerticalScroller = enabled
+    }
+
+    override func layout() {
+        super.layout()
+        let w = scrollView.contentSize.width
+        guard abs(contentView.frame.width - w) > 0.5 else { return }
+        contentView.frame.size.width = w
     }
 
     func setConnected(_ connected: Bool) {
@@ -250,6 +286,9 @@ class SidebarView: NSView {
             selectNext()
         case "k":
             selectPrevious()
+        case "\u{1B}": // Escape
+            clearSelection()
+            onEscapeKey?()
         case "q":
             clearSelection()
             onHide?()
@@ -365,6 +404,9 @@ class SidebarView: NSView {
 // MARK: - Column header
 
 private class ColumnHeaderView: NSView {
+    private let sessionLabel = NSTextField(labelWithString: "Session")
+    private let activityLabel = NSTextField(labelWithString: "Activity")
+
     override init(frame: NSRect) {
         super.init(frame: frame)
         setup()
@@ -372,38 +414,31 @@ private class ColumnHeaderView: NSView {
     required init?(coder: NSCoder) { fatalError() }
 
     private func setup() {
-        let font = NSFont.monospacedSystemFont(ofSize: 11, weight: .bold)
         let color = NSColor(white: 0.55, alpha: 1)
-
-        let session = NSTextField(labelWithString: "Session")
-        session.font = font
-        session.textColor = color
-        session.isBezeled = false
-        session.drawsBackground = false
-        session.isEditable = false
-        session.isSelectable = false
-
-        let activity = NSTextField(labelWithString: "Activity")
-        activity.font = font
-        activity.textColor = color
-        activity.isBezeled = false
-        activity.drawsBackground = false
-        activity.isEditable = false
-        activity.isSelectable = false
-        activity.alignment = .right
-
-        for v in [session, activity] {
-            v.translatesAutoresizingMaskIntoConstraints = false
-            addSubview(v)
+        for label in [sessionLabel, activityLabel] {
+            label.textColor = color
+            label.isBezeled = false
+            label.drawsBackground = false
+            label.isEditable = false
+            label.isSelectable = false
+            label.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(label)
         }
+        activityLabel.alignment = .right
 
         NSLayoutConstraint.activate([
-            session.leadingAnchor.constraint(equalTo: leadingAnchor, constant: SessionRowView.leadingPad),
-            session.centerYAnchor.constraint(equalTo: centerYAnchor),
-
-            activity.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -SessionRowView.trailingPad),
-            activity.centerYAnchor.constraint(equalTo: centerYAnchor),
+            sessionLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: SessionRowView.leadingPad),
+            sessionLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            activityLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -SessionRowView.trailingPad),
+            activityLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
+        applyFontSize(11)
+    }
+
+    func applyFontSize(_ size: CGFloat) {
+        let font = NSFont.monospacedSystemFont(ofSize: size, weight: .bold)
+        sessionLabel.font = font
+        activityLabel.font = font
     }
 }
 

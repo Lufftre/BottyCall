@@ -97,6 +97,15 @@ class SessionRowView: NSView {
         ))
     }
 
+    func applyExpanded(_ expanded: Bool) {
+        let main: CGFloat = expanded ? 14 : 12
+        let time: CGFloat = expanded ? 13 : 11
+        selectorLabel.font = .monospacedSystemFont(ofSize: main, weight: .bold)
+        iconLabel.font     = .monospacedSystemFont(ofSize: main, weight: .regular)
+        slugLabel.font     = .monospacedSystemFont(ofSize: main, weight: .regular)
+        timeLabel.font     = .monospacedSystemFont(ofSize: time,  weight: .regular)
+    }
+
     func configure(with session: Session, label: String? = nil, depth: Int = 0) {
         self.session = session
         let color = statusColor(session.status)

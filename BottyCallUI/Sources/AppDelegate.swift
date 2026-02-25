@@ -4,11 +4,13 @@ import Carbon
 // References accessible from the C-compatible hotkey callback (no captures allowed).
 private var _hotKeyPanel: NSPanel?
 private var _hotKeySidebar: SidebarView?
+private var _hotKeyAppDelegate: AppDelegate?
 
 private let _hotKeyCallback: EventHandlerUPP = { _, _, _ -> OSStatus in
     DispatchQueue.main.async {
+        _hotKeyAppDelegate?.previousApp = NSWorkspace.shared.frontmostApplication
         NSApp.activate(ignoringOtherApps: true)
-        _hotKeyPanel?.makeKeyAndOrderFront(nil)
+        _hotKeyAppDelegate?.showCenteredAndFront()
         _hotKeySidebar?.selectBestSession()
     }
     return noErr
@@ -40,6 +42,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var connection: SessionConnection!
     private var hotKeyRef: EventHotKeyRef?
     private var hotKeyHandlerRef: EventHandlerRef?
+    private var isCenteredMode = false
+    var previousApp: NSRunningApplication?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupPanel()
@@ -116,6 +120,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         sidebarView.onHide = { [weak self] in
             self?.panel.orderOut(nil)
         }
+        sidebarView.onEscapeKey = { [weak self] in
+            guard let self else { return }
+            previousApp?.activate(options: .activateIgnoringOtherApps)
+            previousApp = nil
+        }
 
         sidebarView.onHeightChange = { [weak self] height in
             self?.resizePanel(to: height)
@@ -123,11 +132,55 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         panel.contentView!.addSubview(sidebarView)
         panel.makeKeyAndOrderFront(nil)
+
+        NotificationCenter.default.addObserver(
+            forName: NSWindow.didResignKeyNotification,
+            object: panel,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self, self.isCenteredMode, let screen = NSScreen.main else { return }
+            let width: CGFloat = 250
+            let height = min(self.sidebarView.intrinsicContentHeight, screen.visibleFrame.height)
+            let frame = NSRect(
+                x: screen.visibleFrame.maxX - width,
+                y: screen.visibleFrame.maxY - height,
+                width: width,
+                height: height
+            )
+            NSAnimationContext.runAnimationGroup({ ctx in
+                ctx.duration = 0.15
+                ctx.timingFunction = CAMediaTimingFunction(name: .easeIn)
+                self.panel.animator().setFrame(frame, display: true)
+            }, completionHandler: { [weak self] in
+                self?.isCenteredMode = false
+            })
+        }
+    }
+
+    func showCenteredAndFront() {
+        guard let screen = NSScreen.main else { return }
+        let visible = screen.visibleFrame
+        let expandedWidth: CGFloat = 380
+        let height = min(sidebarView.intrinsicContentHeight, visible.height)
+        let frame = NSRect(
+            x: visible.maxX - expandedWidth,
+            y: visible.maxY - height,
+            width: expandedWidth,
+            height: height
+        )
+        isCenteredMode = true
+        panel.makeKeyAndOrderFront(nil)
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.2
+            ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            panel.animator().setFrame(frame, display: true)
+        }
     }
 
     private func registerHotKey() {
         _hotKeyPanel = panel
         _hotKeySidebar = sidebarView
+        _hotKeyAppDelegate = self
 
         var et = EventTypeSpec(
             eventClass: OSType(kEventClassKeyboard),
@@ -152,6 +205,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func resizePanel(to height: CGFloat) {
+        guard !isCenteredMode else { return }
         guard let screen = NSScreen.main else { return }
         let width: CGFloat = 250
         let clamped = min(height, screen.visibleFrame.height)
@@ -165,6 +219,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func repositionPanel() {
+        guard !isCenteredMode else { return }
         guard let screen = NSScreen.main else { return }
         let width: CGFloat = 250
         let currentHeight = panel.frame.height
