@@ -16,7 +16,14 @@ class SessionRowView: NSView {
     private var mouseDownEvent: NSEvent?
     private var displayedTokens: Double = 0
     private var targetTokens: Int = 0
+    private var tokensPerFrame: Double = 0
+    private var colorBrightness: Double = 0.50
     private var animTimer: Timer?
+
+    private static let normalBrightness: Double = 0.50
+    private static let activeBrightness: Double = 1.0
+    // Fade back to normal over ~0.8s at 60fps
+    private static let fadeSpeed: Double = (activeBrightness - normalBrightness) / (0.8 * 60)
 
     static let rowHeight: CGFloat = 28
     static let leadingPad: CGFloat = 10
@@ -108,24 +115,44 @@ class SessionRowView: NSView {
     }
 
     func configure(with session: Session, label: String? = nil, depth: Int = 0) {
+        let isSameSession = self.session?.session_id == session.session_id
         self.session = session
-        animTimer?.invalidate()
-        animTimer = nil
-        displayedTokens = Double(session.totalTokens)
-        targetTokens = session.totalTokens
+
         let color = statusColor(session.status)
         iconLabel.stringValue = session.status.icon
         iconLabel.textColor = color
         slugLabel.stringValue = label ?? session.slug
-        tokenLabel.stringValue = formatTokens(session.totalTokens)
+
+        if isSameSession {
+            updateTime(for: session)
+        } else {
+            animTimer?.invalidate()
+            animTimer = nil
+            displayedTokens = Double(session.totalTokens)
+            targetTokens = session.totalTokens
+            colorBrightness = Self.normalBrightness
+            tokenLabel.textColor = NSColor(white: Self.normalBrightness, alpha: 1)
+            tokenLabel.stringValue = formatTokens(session.totalTokens)
+        }
+
         setSelected(false)
     }
 
     func updateTime(for session: Session) {
         let newTokens = session.totalTokens
-        if newTokens != targetTokens {
+        if newTokens > targetTokens {
+            let diff = Double(newTokens) - displayedTokens
+            // Target ~1.8s to count through the full jump at 60fps
+            tokensPerFrame = max(1, diff / (1.8 * 60))
             targetTokens = newTokens
+            colorBrightness = Self.activeBrightness
+            tokenLabel.textColor = NSColor(white: Self.activeBrightness, alpha: 1)
             startTokenAnimation()
+        } else if newTokens != targetTokens {
+            // Tokens decreased or reset — snap immediately
+            displayedTokens = Double(newTokens)
+            targetTokens = newTokens
+            tokenLabel.stringValue = formatTokens(newTokens)
         }
     }
 
@@ -133,15 +160,18 @@ class SessionRowView: NSView {
         animTimer?.invalidate()
         animTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { [weak self] timer in
             guard let self = self else { timer.invalidate(); return }
-            let diff = Double(self.targetTokens) - self.displayedTokens
-            if abs(diff) < 0.5 {
-                self.displayedTokens = Double(self.targetTokens)
-                self.tokenLabel.stringValue = formatTokens(self.targetTokens)
-                timer.invalidate()
-                self.animTimer = nil
-            } else {
-                self.displayedTokens += diff * 0.05
+
+            if self.displayedTokens < Double(self.targetTokens) {
+                self.displayedTokens = min(self.displayedTokens + self.tokensPerFrame, Double(self.targetTokens))
                 self.tokenLabel.stringValue = formatTokens(Int(self.displayedTokens.rounded()))
+            } else {
+                // Counting done — fade color back to normal
+                self.colorBrightness = max(Self.normalBrightness, self.colorBrightness - Self.fadeSpeed)
+                self.tokenLabel.textColor = NSColor(white: self.colorBrightness, alpha: 1)
+                if self.colorBrightness <= Self.normalBrightness {
+                    timer.invalidate()
+                    self.animTimer = nil
+                }
             }
         }
     }

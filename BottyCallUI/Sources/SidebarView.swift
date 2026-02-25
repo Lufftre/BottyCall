@@ -11,6 +11,7 @@ class SidebarView: NSView {
     private let leftBorder = NSView()
 
     private var rowViews: [SessionRowView] = []
+    private var rowViewPool: [String: SessionRowView] = [:]
     private var sessions: [Session] = []
     private var groups: [SessionGroup] = []
     private var refreshTimer: Timer?
@@ -174,6 +175,10 @@ class SidebarView: NSView {
         rowViews.removeAll()
         sessions = groups.flatMap { $0.entries.map { $0.session } }
 
+        // Retire rows whose sessions are gone
+        let liveIds = Set(sessions.map { $0.session_id })
+        rowViewPool = rowViewPool.filter { liveIds.contains($0.key) }
+
         emptyLabel.isHidden = !sessions.isEmpty
 
         var y: CGFloat = 0
@@ -191,7 +196,10 @@ class SidebarView: NSView {
             }
 
             for entry in group.entries {
-                let row = SessionRowView(frame: NSRect(x: 0, y: y, width: width, height: currentRowHeight))
+                let sid = entry.session.session_id
+                let row = rowViewPool[sid] ?? SessionRowView(frame: .zero)
+                rowViewPool[sid] = row
+                row.frame = NSRect(x: 0, y: y, width: width, height: currentRowHeight)
                 row.autoresizingMask = [.width]
                 row.applyExpanded(isExpanded)
                 let label = (group.repoPath != nil ? entry.session.git_branch : nil) ?? entry.session.slug
@@ -303,13 +311,13 @@ class SidebarView: NSView {
 
     private func selectNext() {
         guard !sessions.isEmpty else { return }
-        let next = selectedIndex.map { min($0 + 1, sessions.count - 1) } ?? 0
+        let next = selectedIndex.map { ($0 + 1) % sessions.count } ?? 0
         setSelectedIndex(next)
     }
 
     private func selectPrevious() {
         guard !sessions.isEmpty else { return }
-        let prev = selectedIndex.map { max($0 - 1, 0) } ?? 0
+        let prev = selectedIndex.map { ($0 - 1 + sessions.count) % sessions.count } ?? sessions.count - 1
         setSelectedIndex(prev)
     }
 
