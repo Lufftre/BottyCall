@@ -8,6 +8,7 @@ class SessionRowView: NSView {
     private let selectorLabel = NSTextField(labelWithString: " ")
     private let iconLabel = NSTextField(labelWithString: "")
     private let slugLabel = NSTextField(labelWithString: "")
+    private let tokenLabel = NSTextField(labelWithString: "")
     private let timeLabel = NSTextField(labelWithString: "")
 
     var session: Session?
@@ -57,6 +58,16 @@ class SessionRowView: NSView {
         slugLabel.isSelectable = false
         slugLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
+        tokenLabel.font = .monospacedSystemFont(ofSize: 10, weight: .regular)
+        tokenLabel.textColor = NSColor(white: 0.35, alpha: 1)
+        tokenLabel.alignment = .right
+        tokenLabel.isBezeled = false
+        tokenLabel.drawsBackground = false
+        tokenLabel.isEditable = false
+        tokenLabel.isSelectable = false
+        tokenLabel.setContentHuggingPriority(.required, for: .horizontal)
+        tokenLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+
         timeLabel.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
         timeLabel.textColor = NSColor(white: 0.45, alpha: 1)
         timeLabel.alignment = .right
@@ -67,7 +78,7 @@ class SessionRowView: NSView {
         timeLabel.setContentHuggingPriority(.required, for: .horizontal)
         timeLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
 
-        for v in [selectorLabel, iconLabel, slugLabel, timeLabel] {
+        for v in [selectorLabel, iconLabel, slugLabel, tokenLabel, timeLabel] {
             v.translatesAutoresizingMaskIntoConstraints = false
             addSubview(v)
         }
@@ -83,7 +94,10 @@ class SessionRowView: NSView {
 
             slugLabel.leadingAnchor.constraint(equalTo: iconLabel.trailingAnchor, constant: 4),
             slugLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-            slugLabel.trailingAnchor.constraint(lessThanOrEqualTo: timeLabel.leadingAnchor, constant: -8),
+            slugLabel.trailingAnchor.constraint(lessThanOrEqualTo: tokenLabel.leadingAnchor, constant: -6),
+
+            tokenLabel.trailingAnchor.constraint(equalTo: timeLabel.leadingAnchor, constant: -6),
+            tokenLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
 
             timeLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Self.trailingPad),
             timeLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
@@ -112,11 +126,13 @@ class SessionRowView: NSView {
         iconLabel.stringValue = session.status.icon
         iconLabel.textColor = color
         slugLabel.stringValue = label ?? session.slug
+        tokenLabel.stringValue = formatTokens(session.totalTokens)
         timeLabel.stringValue = relativeTime(from: session.last_activity)
         setSelected(false)
     }
 
     func updateTime(for session: Session) {
+        tokenLabel.stringValue = formatTokens(session.totalTokens)
         timeLabel.stringValue = relativeTime(from: session.last_activity)
     }
 

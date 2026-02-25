@@ -42,6 +42,7 @@ fn run_inner(event: &str) -> Option<()> {
     let message = hook.get("message").and_then(|v| v.as_str());
     let stop_hook_active = hook.get("stop_hook_active").and_then(|v| v.as_bool());
     let tool_name = hook.get("tool_name").and_then(|v| v.as_str());
+    let transcript_path = hook.get("transcript_path").and_then(|v| v.as_str());
 
     // Get tmux pane from environment
     let tmux_pane = std::env::var("TMUX_PANE").ok();
@@ -67,6 +68,9 @@ fn run_inner(event: &str) -> Option<()> {
     }
     if let Some(v) = &tmux_pane {
         obj.insert("tmux_pane".into(), v.clone().into());
+    }
+    if let Some(v) = transcript_path {
+        obj.insert("transcript_path".into(), v.into());
     }
     obj.insert("ts".into(), chrono::Utc::now().to_rfc3339().into());
 

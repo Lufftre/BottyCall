@@ -41,6 +41,18 @@ pub struct Session {
     pub git_repo: Option<String>,
     #[serde(default)]
     pub git_branch: Option<String>,
+    /// Cumulative input tokens for this session (includes cache reads/writes).
+    #[serde(default)]
+    pub input_tokens: u64,
+    /// Cumulative output tokens for this session.
+    #[serde(default)]
+    pub output_tokens: u64,
+    /// Path to the Claude Code transcript JSONL — daemon only, not sent to clients.
+    #[serde(skip)]
+    pub transcript_path: Option<String>,
+    /// Byte offset into the transcript file up to which tokens have been counted.
+    #[serde(skip)]
+    pub transcript_offset: u64,
 }
 
 /// Resolve the git repository root for a working directory.
@@ -116,6 +128,23 @@ pub fn disambiguate_slugs(sessions: &mut [Session]) {
             }
         }
     }
+}
+
+/// Format a token count as a compact human-readable string (e.g. "12k", "1.4M").
+pub fn format_tokens(n: u64) -> String {
+    if n == 0 {
+        return String::new();
+    }
+    if n < 1_000 {
+        return format!("{n}");
+    }
+    if n < 10_000 {
+        return format!("{:.1}k", n as f64 / 1_000.0);
+    }
+    if n < 1_000_000 {
+        return format!("{}k", n / 1_000);
+    }
+    format!("{:.1}M", n as f64 / 1_000_000.0)
 }
 
 /// Format a duration as a human-readable relative time string.

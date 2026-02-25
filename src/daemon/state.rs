@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::io::{Read, Seek, SeekFrom};
 
 use chrono::Utc;
 
@@ -75,6 +76,10 @@ impl SessionMap {
                     tmux_pane: report.tmux_pane.clone(),
                     git_repo,
                     git_branch,
+                    input_tokens: 0,
+                    output_tokens: 0,
+                    transcript_path: report.transcript_path.clone(),
+                    transcript_offset: 0,
                 }
             });
 
@@ -89,6 +94,9 @@ impl SessionMap {
         }
         if report.tmux_pane.is_some() {
             session.tmux_pane = report.tmux_pane.clone();
+        }
+        if report.transcript_path.is_some() {
+            session.transcript_path = report.transcript_path.clone();
         }
 
         // State machine transitions
@@ -118,6 +126,15 @@ impl SessionMap {
             session.status = status;
         }
         session.last_activity = now;
+
+        // On Stop, read new transcript entries and accumulate token usage
+        if event == "Stop" {
+            if let Some(path) = session.transcript_path.clone() {
+                let (din, dout) = read_transcript_usage(&path, &mut session.transcript_offset);
+                session.input_tokens += din;
+                session.output_tokens += dout;
+            }
+        }
 
         let mut msgs = Vec::new();
         if let Some(rm) = polled_remove {
@@ -160,6 +177,10 @@ impl SessionMap {
             tmux_pane: Some(tmux_pane),
             git_repo,
             git_branch,
+            input_tokens: 0,
+            output_tokens: 0,
+            transcript_path: None,
+            transcript_offset: 0,
         };
         self.sessions.insert(session_id, session.clone());
         Some(ServerMessage::Update { session })
@@ -183,4 +204,48 @@ impl SessionMap {
             })
             .collect()
     }
+}
+
+/// Read new assistant entries from the transcript JSONL file starting at `offset`,
+/// returning (input_tokens, output_tokens) and advancing the offset.
+/// Input tokens include raw input plus cache reads and cache writes.
+/// Errors are silently ignored — token counting is best-effort.
+fn read_transcript_usage(path: &str, offset: &mut u64) -> (u64, u64) {
+    let mut file = match std::fs::File::open(path) {
+        Ok(f) => f,
+        Err(_) => return (0, 0),
+    };
+
+    if file.seek(SeekFrom::Start(*offset)).is_err() {
+        return (0, 0);
+    }
+
+    let mut buf = String::new();
+    if file.read_to_string(&mut buf).is_err() {
+        return (0, 0);
+    }
+
+    *offset += buf.len() as u64;
+
+    let mut input_tokens = 0u64;
+    let mut output_tokens = 0u64;
+
+    for line in buf.lines() {
+        let Ok(entry) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        if entry.get("type").and_then(|v| v.as_str()) != Some("assistant") {
+            continue;
+        }
+        let Some(usage) = entry.get("message").and_then(|m| m.get("usage")) else {
+            continue;
+        };
+        let tok = |key: &str| usage.get(key).and_then(|v| v.as_u64()).unwrap_or(0);
+        input_tokens += tok("input_tokens")
+            + tok("cache_read_input_tokens")
+            + tok("cache_creation_input_tokens");
+        output_tokens += tok("output_tokens");
+    }
+
+    (input_tokens, output_tokens)
 }

@@ -31,6 +31,8 @@ pub struct HookReport {
     #[serde(default)]
     pub tmux_pane: Option<String>,
     #[serde(default)]
+    pub transcript_path: Option<String>,
+    #[serde(default)]
     pub ts: Option<DateTime<Utc>>,
 }
 
