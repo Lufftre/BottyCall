@@ -63,6 +63,68 @@ pub async fn poll_loop(state: Arc<Mutex<SessionMap>>, tx: broadcast::Sender<Serv
     }
 }
 
+/// Periodically capture tmux pane content to get live token counts from Claude Code's status bar.
+pub async fn token_poll_loop(state: Arc<Mutex<SessionMap>>, tx: broadcast::Sender<ServerMessage>) {
+    let mut ticker = interval(Duration::from_secs(2));
+
+    loop {
+        ticker.tick().await;
+
+        // Snapshot sessions with panes without holding the lock during I/O
+        let pane_sessions: Vec<(String, String)> = {
+            let map = state.lock().await;
+            map.sessions()
+                .into_iter()
+                .filter_map(|s| s.tmux_pane.map(|p| (s.session_id, p)))
+                .collect()
+        };
+
+        for (session_id, pane_id) in pane_sessions {
+            if let Some(tokens) = read_pane_tokens(&pane_id).await {
+                let mut map = state.lock().await;
+                if let Some(msg) = map.update_pane_tokens(&session_id, tokens) {
+                    let _ = tx.send(msg);
+                }
+            }
+        }
+    }
+}
+
+/// Capture a tmux pane and extract the token count from Claude Code's status bar.
+/// The status bar displays `NNNNN tokens` right-aligned near the bottom of the pane.
+async fn read_pane_tokens(pane_id: &str) -> Option<u64> {
+    let output = Command::new("tmux")
+        .args(["capture-pane", "-t", pane_id, "-p"])
+        .output()
+        .await
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let content = String::from_utf8_lossy(&output.stdout);
+
+    // Search last 5 lines — status bar is always near the bottom
+    content
+        .lines()
+        .rev()
+        .take(5)
+        .find_map(parse_tokens_from_line)
+}
+
+/// Extract `NNNNN tokens` from the end of a line (Claude Code status bar format).
+fn parse_tokens_from_line(line: &str) -> Option<u64> {
+    let trimmed = line.trim_end().strip_suffix(" tokens")?;
+    let digits_start = trimmed
+        .rfind(|c: char| !c.is_ascii_digit())
+        .map(|i| i + 1)
+        .unwrap_or(0);
+    let num = &trimmed[digits_start..];
+    if num.is_empty() { return None; }
+    num.parse().ok()
+}
+
 struct ClaudePane {
     pane_id: String,
     cwd: String,

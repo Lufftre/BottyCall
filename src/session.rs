@@ -41,18 +41,11 @@ pub struct Session {
     pub git_repo: Option<String>,
     #[serde(default)]
     pub git_branch: Option<String>,
-    /// Cumulative input tokens for this session (includes cache reads/writes).
+    /// Token count from live tmux pane capture of Claude Code's status bar.
     #[serde(default)]
     pub input_tokens: u64,
-    /// Cumulative output tokens for this session.
     #[serde(default)]
     pub output_tokens: u64,
-    /// Path to the Claude Code transcript JSONL — daemon only, not sent to clients.
-    #[serde(skip)]
-    pub transcript_path: Option<String>,
-    /// Byte offset into the transcript file up to which tokens have been counted.
-    #[serde(skip)]
-    pub transcript_offset: u64,
 }
 
 /// Resolve the git repository root for a working directory.

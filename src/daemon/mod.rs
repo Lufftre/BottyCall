@@ -39,6 +39,13 @@ pub async fn run() {
         poller::poll_loop(poll_state, poll_tx).await;
     });
 
+    // Spawn the live token poller
+    let token_state = Arc::clone(&state);
+    let token_tx = tx.clone();
+    tokio::spawn(async move {
+        poller::token_poll_loop(token_state, token_tx).await;
+    });
+
     // Wait for shutdown signal
     tokio::select! {
         _ = signal::ctrl_c() => {
