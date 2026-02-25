@@ -9,12 +9,14 @@ class SessionRowView: NSView {
     private let iconLabel = NSTextField(labelWithString: "")
     private let slugLabel = NSTextField(labelWithString: "")
     private let tokenLabel = NSTextField(labelWithString: "")
-    private let timeLabel = NSTextField(labelWithString: "")
 
     var session: Session?
     var onClick: (() -> Void)?
 
     private var mouseDownEvent: NSEvent?
+    private var displayedTokens: Double = 0
+    private var targetTokens: Int = 0
+    private var animTimer: Timer?
 
     static let rowHeight: CGFloat = 28
     static let leadingPad: CGFloat = 10
@@ -59,7 +61,7 @@ class SessionRowView: NSView {
         slugLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         tokenLabel.font = .monospacedSystemFont(ofSize: 10, weight: .regular)
-        tokenLabel.textColor = NSColor(white: 0.35, alpha: 1)
+        tokenLabel.textColor = NSColor(white: 0.50, alpha: 1)
         tokenLabel.alignment = .right
         tokenLabel.isBezeled = false
         tokenLabel.drawsBackground = false
@@ -68,17 +70,7 @@ class SessionRowView: NSView {
         tokenLabel.setContentHuggingPriority(.required, for: .horizontal)
         tokenLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
 
-        timeLabel.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
-        timeLabel.textColor = NSColor(white: 0.45, alpha: 1)
-        timeLabel.alignment = .right
-        timeLabel.isBezeled = false
-        timeLabel.drawsBackground = false
-        timeLabel.isEditable = false
-        timeLabel.isSelectable = false
-        timeLabel.setContentHuggingPriority(.required, for: .horizontal)
-        timeLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
-
-        for v in [selectorLabel, iconLabel, slugLabel, tokenLabel, timeLabel] {
+        for v in [selectorLabel, iconLabel, slugLabel, tokenLabel] {
             v.translatesAutoresizingMaskIntoConstraints = false
             addSubview(v)
         }
@@ -96,11 +88,8 @@ class SessionRowView: NSView {
             slugLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
             slugLabel.trailingAnchor.constraint(lessThanOrEqualTo: tokenLabel.leadingAnchor, constant: -6),
 
-            tokenLabel.trailingAnchor.constraint(equalTo: timeLabel.leadingAnchor, constant: -6),
+            tokenLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Self.trailingPad),
             tokenLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-
-            timeLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Self.trailingPad),
-            timeLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
 
         addTrackingArea(NSTrackingArea(
@@ -113,27 +102,48 @@ class SessionRowView: NSView {
 
     func applyExpanded(_ expanded: Bool) {
         let main: CGFloat = expanded ? 14 : 12
-        let time: CGFloat = expanded ? 13 : 11
         selectorLabel.font = .monospacedSystemFont(ofSize: main, weight: .bold)
         iconLabel.font     = .monospacedSystemFont(ofSize: main, weight: .regular)
         slugLabel.font     = .monospacedSystemFont(ofSize: main, weight: .regular)
-        timeLabel.font     = .monospacedSystemFont(ofSize: time,  weight: .regular)
     }
 
     func configure(with session: Session, label: String? = nil, depth: Int = 0) {
         self.session = session
+        animTimer?.invalidate()
+        animTimer = nil
+        displayedTokens = Double(session.totalTokens)
+        targetTokens = session.totalTokens
         let color = statusColor(session.status)
         iconLabel.stringValue = session.status.icon
         iconLabel.textColor = color
         slugLabel.stringValue = label ?? session.slug
         tokenLabel.stringValue = formatTokens(session.totalTokens)
-        timeLabel.stringValue = relativeTime(from: session.last_activity)
         setSelected(false)
     }
 
     func updateTime(for session: Session) {
-        tokenLabel.stringValue = formatTokens(session.totalTokens)
-        timeLabel.stringValue = relativeTime(from: session.last_activity)
+        let newTokens = session.totalTokens
+        if newTokens != targetTokens {
+            targetTokens = newTokens
+            startTokenAnimation()
+        }
+    }
+
+    private func startTokenAnimation() {
+        animTimer?.invalidate()
+        animTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { [weak self] timer in
+            guard let self = self else { timer.invalidate(); return }
+            let diff = Double(self.targetTokens) - self.displayedTokens
+            if abs(diff) < 0.5 {
+                self.displayedTokens = Double(self.targetTokens)
+                self.tokenLabel.stringValue = formatTokens(self.targetTokens)
+                timer.invalidate()
+                self.animTimer = nil
+            } else {
+                self.displayedTokens += diff * 0.05
+                self.tokenLabel.stringValue = formatTokens(Int(self.displayedTokens.rounded()))
+            }
+        }
     }
 
     func setSelected(_ selected: Bool) {

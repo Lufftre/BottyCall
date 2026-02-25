@@ -54,12 +54,17 @@ struct Session: Decodable {
     }
 }
 
+private let tokenFormatter: NumberFormatter = {
+    let f = NumberFormatter()
+    f.numberStyle = .decimal
+    f.groupingSeparator = " "
+    f.groupingSize = 3
+    return f
+}()
+
 func formatTokens(_ count: Int) -> String {
     guard count > 0 else { return "" }
-    if count < 1_000 { return "\(count)" }
-    if count < 10_000 { return String(format: "%.1fk", Double(count) / 1_000) }
-    if count < 1_000_000 { return "\(count / 1_000)k" }
-    return String(format: "%.1fM", Double(count) / 1_000_000)
+    return tokenFormatter.string(from: NSNumber(value: count)) ?? "\(count)"
 }
 
 struct SessionEntry {
