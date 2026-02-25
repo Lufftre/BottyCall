@@ -22,6 +22,9 @@ pub async fn run() {
     let state = Arc::new(Mutex::new(SessionMap::new()));
     let (tx, _rx) = broadcast::channel::<ServerMessage>(256);
 
+    // Discover existing sessions before accepting connections
+    poller::poll_once(&state, &tx).await;
+
     // Spawn the socket accept loop
     let accept_state = Arc::clone(&state);
     let accept_tx = tx.clone();

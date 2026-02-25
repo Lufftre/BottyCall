@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use chrono::Utc;
 
 use crate::protocol::{HookReport, ServerMessage};
-use crate::session::{Session, Status, slug_from_cwd};
+use crate::session::{Session, Status, git_branch_from_cwd, git_repo_from_cwd, slug_from_cwd};
 
 /// Holds all tracked sessions keyed by session_id.
 pub struct SessionMap {
@@ -61,10 +61,10 @@ impl SessionMap {
             .entry(report.session_id.clone())
             .or_insert_with(|| {
                 let cwd = report.cwd.clone().unwrap_or_default();
-                let slug = if cwd.is_empty() {
-                    report.session_id.chars().take(8).collect()
+                let (slug, git_repo, git_branch) = if cwd.is_empty() {
+                    (report.session_id.chars().take(8).collect(), None, None)
                 } else {
-                    slug_from_cwd(&cwd)
+                    (slug_from_cwd(&cwd), git_repo_from_cwd(&cwd), git_branch_from_cwd(&cwd))
                 };
                 Session {
                     session_id: report.session_id.clone(),
@@ -73,6 +73,8 @@ impl SessionMap {
                     last_activity: now,
                     cwd: report.cwd.clone(),
                     tmux_pane: report.tmux_pane.clone(),
+                    git_repo,
+                    git_branch,
                 }
             });
 
@@ -81,6 +83,8 @@ impl SessionMap {
             if session.cwd.as_ref() != Some(cwd) {
                 session.cwd = Some(cwd.clone());
                 session.slug = slug_from_cwd(cwd);
+                session.git_repo = git_repo_from_cwd(cwd);
+                session.git_branch = git_branch_from_cwd(cwd);
             }
         }
         if report.tmux_pane.is_some() {
@@ -145,6 +149,8 @@ impl SessionMap {
         }
 
         let slug = slug_from_cwd(&cwd);
+        let git_repo = git_repo_from_cwd(&cwd);
+        let git_branch = git_branch_from_cwd(&cwd);
         let session = Session {
             session_id: session_id.clone(),
             slug,
@@ -152,6 +158,8 @@ impl SessionMap {
             last_activity: Utc::now(),
             cwd: Some(cwd),
             tmux_pane: Some(tmux_pane),
+            git_repo,
+            git_branch,
         };
         self.sessions.insert(session_id, session.clone());
         Some(ServerMessage::Update { session })

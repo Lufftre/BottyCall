@@ -37,6 +37,56 @@ pub struct Session {
     pub cwd: Option<String>,
     #[serde(default)]
     pub tmux_pane: Option<String>,
+    #[serde(default)]
+    pub git_repo: Option<String>,
+    #[serde(default)]
+    pub git_branch: Option<String>,
+}
+
+/// Resolve the git repository root for a working directory.
+/// Uses --git-common-dir so that worktrees of the same repo share one root.
+pub fn git_repo_from_cwd(cwd: &str) -> Option<String> {
+    let output = std::process::Command::new("git")
+        .args(["-C", cwd, "rev-parse", "--path-format=absolute", "--git-common-dir"])
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let git_dir = String::from_utf8(output.stdout).ok()?;
+    let git_dir = git_dir.trim();
+    let path = std::path::Path::new(git_dir);
+    let abs = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::path::Path::new(cwd).join(path)
+    };
+
+    // git_dir is e.g. "/path/to/repo/.git" — parent is the repo root
+    abs.parent()
+        .and_then(|p| p.to_str())
+        .map(|s| s.to_string())
+}
+
+/// Resolve the current git branch for a working directory.
+pub fn git_branch_from_cwd(cwd: &str) -> Option<String> {
+    let output = std::process::Command::new("git")
+        .args(["-C", cwd, "rev-parse", "--abbrev-ref", "HEAD"])
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let branch = String::from_utf8(output.stdout).ok()?;
+    let branch = branch.trim();
+    if branch.is_empty() || branch == "HEAD" {
+        return None;
+    }
+    Some(branch.to_string())
 }
 
 /// Derive a display slug from the working directory path.

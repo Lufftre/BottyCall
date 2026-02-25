@@ -9,57 +9,57 @@ use crate::protocol::ServerMessage;
 
 use super::state::SessionMap;
 
+/// Run a single poll: discover claude processes, register new sessions, remove stale ones.
+pub async fn poll_once(state: &Arc<Mutex<SessionMap>>, tx: &broadcast::Sender<ServerMessage>) {
+    let Some(panes) = list_tmux_panes().await else {
+        return;
+    };
+
+    let pane_by_pid: HashMap<u32, (&str, &str)> = panes
+        .iter()
+        .map(|p| (p.pane_pid, (p.pane_id.as_str(), p.cwd.as_str())))
+        .collect();
+
+    let claude_panes = find_claude_panes(&pane_by_pid).await;
+
+    let mut map = state.lock().await;
+    let known_panes = map.pane_session_map();
+
+    let active_pane_ids: HashSet<&str> =
+        claude_panes.iter().map(|c| c.pane_id.as_str()).collect();
+
+    for cp in &claude_panes {
+        if known_panes.contains_key(&cp.pane_id) {
+            continue;
+        }
+        let session_id = format!("polled-{}", cp.pane_id.trim_start_matches('%'));
+        if let Some(msg) = map.register_polled(session_id, cp.cwd.clone(), cp.pane_id.clone()) {
+            let _ = tx.send(msg);
+        }
+    }
+
+    let to_remove: Vec<String> = known_panes
+        .iter()
+        .filter(|(pane_id, session_id)| {
+            session_id.starts_with("polled-") && !active_pane_ids.contains(pane_id.as_str())
+        })
+        .map(|(_, session_id)| session_id.clone())
+        .collect();
+
+    for session_id in to_remove {
+        if let Some(msg) = map.remove(&session_id) {
+            let _ = tx.send(msg);
+        }
+    }
+}
+
 /// Periodically scan for Claude Code processes and match them to tmux panes.
 pub async fn poll_loop(state: Arc<Mutex<SessionMap>>, tx: broadcast::Sender<ServerMessage>) {
     let mut ticker = interval(Duration::from_secs(5));
 
     loop {
         ticker.tick().await;
-
-        let Some(panes) = list_tmux_panes().await else {
-            continue;
-        };
-
-        // Build a lookup: pane_pid → (pane_id, cwd)
-        let pane_by_pid: HashMap<u32, (&str, &str)> = panes
-            .iter()
-            .map(|p| (p.pane_pid, (p.pane_id.as_str(), p.cwd.as_str())))
-            .collect();
-
-        // Find all actual claude processes and map each to its tmux pane
-        let claude_panes = find_claude_panes(&pane_by_pid).await;
-
-        let mut map = state.lock().await;
-        let known_panes = map.pane_session_map();
-
-        // Register newly discovered sessions
-        let active_pane_ids: HashSet<&str> = claude_panes.iter().map(|c| c.pane_id.as_str()).collect();
-
-        for cp in &claude_panes {
-            if known_panes.contains_key(&cp.pane_id) {
-                continue;
-            }
-            let session_id = format!("polled-{}", cp.pane_id.trim_start_matches('%'));
-            if let Some(msg) = map.register_polled(session_id, cp.cwd.clone(), cp.pane_id.clone())
-            {
-                let _ = tx.send(msg);
-            }
-        }
-
-        // Remove polled sessions whose pane no longer runs claude
-        let to_remove: Vec<String> = known_panes
-            .iter()
-            .filter(|(pane_id, session_id)| {
-                session_id.starts_with("polled-") && !active_pane_ids.contains(pane_id.as_str())
-            })
-            .map(|(_, session_id)| session_id.clone())
-            .collect();
-
-        for session_id in to_remove {
-            if let Some(msg) = map.remove(&session_id) {
-                let _ = tx.send(msg);
-            }
-        }
+        poll_once(&state, &tx).await;
     }
 }
 

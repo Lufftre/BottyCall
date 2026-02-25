@@ -3,10 +3,13 @@ LOG_DIR    := $(HOME)/.local/var/log
 PLIST_DIR  := $(HOME)/Library/LaunchAgents
 PLIST_NAME := com.bottycall.daemon.plist
 
-.PHONY: build install install-bin install-service uninstall logs
+.PHONY: build build-ui install install-bin install-service restart uninstall logs
 
 build:
 	cargo build --release
+
+build-ui:
+	cd BottyCallUI && swift build -c release
 
 install: install-bin install-service
 
@@ -28,6 +31,11 @@ install-service:
 	launchctl bootout gui/$$(id -u) $(PLIST_DIR)/$(PLIST_NAME) 2>/dev/null || true
 	launchctl bootstrap gui/$$(id -u) $(PLIST_DIR)/$(PLIST_NAME)
 	@echo "bottycall daemon started"
+
+restart: install-bin
+	launchctl bootout gui/$$(id -u) $(PLIST_DIR)/$(PLIST_NAME) 2>/dev/null || true
+	launchctl bootstrap gui/$$(id -u) $(PLIST_DIR)/$(PLIST_NAME)
+	@echo "bottycall daemon restarted"
 
 uninstall:
 	launchctl bootout gui/$$(id -u) $(PLIST_DIR)/$(PLIST_NAME) 2>/dev/null || true

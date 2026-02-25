@@ -32,6 +32,16 @@ fn main() {
 
     match cli.command {
         Command::Daemon => {
+            // Ensure Homebrew / common bin dirs are in PATH so the poller
+            // can find tmux and git when launched via launchd.
+            let path = std::env::var("PATH").unwrap_or_default();
+            unsafe {
+                std::env::set_var(
+                    "PATH",
+                    format!("/opt/homebrew/bin:/usr/local/bin:{path}"),
+                );
+            }
+
             let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
             rt.block_on(daemon::run());
         }
