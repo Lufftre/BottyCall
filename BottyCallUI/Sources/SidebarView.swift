@@ -8,8 +8,6 @@ class SidebarView: NSView {
     private let scrollView = NSScrollView()
     private let contentView = FlippedView()
     private let emptyLabel = NSTextField(labelWithString: "No sessions")
-    private let helpSeparator = NSView()
-    private let helpBar = HelpBarView()
     private let leftBorder = NSView()
 
     private var rowViews: [SessionRowView] = []
@@ -20,6 +18,7 @@ class SidebarView: NSView {
     var onSessionClick: ((Session) -> Void)?
     var onSessionDrop: ((_ source: Session, _ target: Session) -> Bool)?
     var onHeightChange: ((CGFloat) -> Void)?
+    var onHide: (() -> Void)?
 
     override var acceptsFirstResponder: Bool { true }
 
@@ -33,6 +32,27 @@ class SidebarView: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         window?.makeFirstResponder(self)
+        guard let window else { return }
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(windowDidBecomeKey),
+            name: NSWindow.didBecomeKeyNotification,
+            object: window
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(windowDidResignKey),
+            name: NSWindow.didResignKeyNotification,
+            object: window
+        )
+    }
+
+    @objc private func windowDidBecomeKey() {
+        window?.makeFirstResponder(self)
+    }
+
+    @objc private func windowDidResignKey() {
+        clearSelection()
     }
 
     private func setup() {
@@ -76,14 +96,11 @@ class SidebarView: NSView {
         scrollView.scrollerStyle = .overlay
         scrollView.documentView = contentView
 
-        helpSeparator.wantsLayer = true
-        helpSeparator.layer?.backgroundColor = NSColor(white: 0.22, alpha: 1).cgColor
-
         leftBorder.wantsLayer = true
         leftBorder.layer?.backgroundColor = NSColor(white: 0.25, alpha: 1).cgColor
 
         for v in [titleLabel, subtitleLabel, topSeparator, columnHeader,
-                  scrollView, emptyLabel, helpSeparator, helpBar, leftBorder] as [NSView] {
+                  scrollView, emptyLabel, leftBorder] as [NSView] {
             v.translatesAutoresizingMaskIntoConstraints = false
             addSubview(v)
         }
@@ -114,17 +131,7 @@ class SidebarView: NSView {
             scrollView.topAnchor.constraint(equalTo: columnHeader.bottomAnchor, constant: 2),
             scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: helpSeparator.topAnchor),
-
-            helpSeparator.leadingAnchor.constraint(equalTo: leadingAnchor),
-            helpSeparator.trailingAnchor.constraint(equalTo: trailingAnchor),
-            helpSeparator.heightAnchor.constraint(equalToConstant: 1),
-            helpSeparator.bottomAnchor.constraint(equalTo: helpBar.topAnchor),
-
-            helpBar.leadingAnchor.constraint(equalTo: leadingAnchor),
-            helpBar.trailingAnchor.constraint(equalTo: trailingAnchor),
-            helpBar.bottomAnchor.constraint(equalTo: bottomAnchor),
-            helpBar.heightAnchor.constraint(equalToConstant: 30),
+            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
 
             emptyLabel.centerXAnchor.constraint(equalTo: scrollView.centerXAnchor),
             emptyLabel.centerYAnchor.constraint(equalTo: scrollView.centerYAnchor),
@@ -189,8 +196,7 @@ class SidebarView: NSView {
         }
 
         let topFixed: CGFloat = 10 + titleLabel.intrinsicContentSize.height + 8 + 1 + 5 + 18 + 2
-        let bottomFixed: CGFloat = 1 + 30
-        let idealHeight = topFixed + max(y, 70) + bottomFixed
+        let idealHeight = topFixed + max(y, 70)
         onHeightChange?(idealHeight)
     }
 
@@ -207,6 +213,23 @@ class SidebarView: NSView {
     private func refreshTimes() {
         for (i, row) in rowViews.enumerated() where i < sessions.count {
             row.updateTime(for: sessions[i])
+        }
+    }
+
+    // MARK: - Focus selection
+
+    /// Selects the highest-priority session: Attention → Idle → Working.
+    func selectBestSession() {
+        guard !sessions.isEmpty else { return }
+        func focusPriority(_ s: Status) -> Int {
+            switch s {
+            case .Attention: return 0
+            case .Idle:      return 1
+            case .Working:   return 2
+            }
+        }
+        if let (idx, _) = sessions.enumerated().min(by: { focusPriority($0.element.status) < focusPriority($1.element.status) }) {
+            setSelectedIndex(idx)
         }
     }
 
@@ -228,7 +251,8 @@ class SidebarView: NSView {
         case "k":
             selectPrevious()
         case "q":
-            NSApplication.shared.terminate(nil)
+            clearSelection()
+            onHide?()
         default:
             if event.keyCode == 36 || event.keyCode == 76 {
                 activateSelected()
@@ -252,7 +276,16 @@ class SidebarView: NSView {
 
     private func activateSelected() {
         guard let idx = selectedIndex, idx < sessions.count else { return }
-        onSessionClick?(sessions[idx])
+        let session = sessions[idx]
+        clearSelection()
+        onSessionClick?(session)
+    }
+
+    private func clearSelection() {
+        if let old = selectedIndex, old < rowViews.count {
+            rowViews[old].setSelected(false)
+        }
+        selectedIndex = nil
     }
 
     private func setSelectedIndex(_ index: Int) {
@@ -370,47 +403,6 @@ private class ColumnHeaderView: NSView {
 
             activity.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -SessionRowView.trailingPad),
             activity.centerYAnchor.constraint(equalTo: centerYAnchor),
-        ])
-    }
-}
-
-// MARK: - Help bar
-
-private class HelpBarView: NSView {
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        setup()
-    }
-    required init?(coder: NSCoder) { fatalError() }
-
-    private func setup() {
-        let label = NSTextField(labelWithString: "")
-        label.isBezeled = false
-        label.drawsBackground = false
-        label.isEditable = false
-        label.isSelectable = false
-
-        let green = NSColor(red: 0.337, green: 0.718, blue: 0.337, alpha: 1)
-        let dim = NSColor(white: 0.50, alpha: 1)
-        let mono = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
-
-        let str = NSMutableAttributedString()
-        let parts: [(String, NSColor)] = [
-            ("j/k", green), (" navigate  ", dim),
-            ("Enter", green), (" switch  ", dim),
-            ("q", green), (" quit", dim),
-        ]
-        for (text, color) in parts {
-            str.append(NSAttributedString(string: text, attributes: [.font: mono, .foregroundColor: color]))
-        }
-        label.attributedStringValue = str
-
-        label.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(label)
-
-        NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
-            label.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
     }
 }

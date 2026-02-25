@@ -1,25 +1,35 @@
 import AppKit
 import Carbon
 
-// Panel reference accessible from the C-compatible hotkey callback (no captures allowed).
+// References accessible from the C-compatible hotkey callback (no captures allowed).
 private var _hotKeyPanel: NSPanel?
+private var _hotKeySidebar: SidebarView?
 
 private let _hotKeyCallback: EventHandlerUPP = { _, _, _ -> OSStatus in
     DispatchQueue.main.async {
         NSApp.activate(ignoringOtherApps: true)
         _hotKeyPanel?.makeKeyAndOrderFront(nil)
+        _hotKeySidebar?.selectBestSession()
     }
     return noErr
 }
 
-/// A floating panel that activates the app when clicked so keyboard navigation works.
 private class KeyablePanel: NSPanel {
-    override func sendEvent(_ event: NSEvent) {
-        if event.type == .leftMouseDown || event.type == .rightMouseDown {
-            NSApp.activate(ignoringOtherApps: true)
-            makeKeyAndOrderFront(nil)
+    override var canBecomeKey: Bool { true }
+
+    override func becomeKey() {
+        super.becomeKey()
+        alphaValue = 1.0
+        if firstResponder == nil || firstResponder === self {
+            if let sidebar = contentView?.subviews.first {
+                makeFirstResponder(sidebar)
+            }
         }
-        super.sendEvent(event)
+    }
+
+    override func resignKey() {
+        super.resignKey()
+        alphaValue = 0.75
     }
 }
 
@@ -73,7 +83,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         panel = KeyablePanel(
             contentRect: frame,
-            styleMask: [.borderless, .nonactivatingPanel],
+            styleMask: [.borderless],
             backing: .buffered,
             defer: false
         )
@@ -85,6 +95,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         panel.appearance = NSAppearance(named: .darkAqua)
         panel.hasShadow = true
         panel.isMovableByWindowBackground = false
+        panel.alphaValue = 0.75
 
         sidebarView = SidebarView(frame: panel.contentView!.bounds)
         sidebarView.autoresizingMask = [.width, .height]
@@ -102,6 +113,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         sidebarView.onSessionDrop = { source, target in
             Self.handleMerge(source: source, target: target)
         }
+        sidebarView.onHide = { [weak self] in
+            self?.panel.orderOut(nil)
+        }
 
         sidebarView.onHeightChange = { [weak self] height in
             self?.resizePanel(to: height)
@@ -113,6 +127,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func registerHotKey() {
         _hotKeyPanel = panel
+        _hotKeySidebar = sidebarView
 
         var et = EventTypeSpec(
             eventClass: OSType(kEventClassKeyboard),
