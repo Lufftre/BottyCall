@@ -5,7 +5,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Cell, Paragraph, Row, Table};
 
-use crate::session::{Status, relative_time};
+use crate::session::{Status, format_tokens, relative_time};
 
 use super::app::App;
 
@@ -51,6 +51,7 @@ fn draw_table(f: &mut Frame, area: Rect, app: &App) {
     let header = Row::new(vec![
         Cell::from(" Session").style(Style::default().add_modifier(Modifier::BOLD)),
         Cell::from("Status").style(Style::default().add_modifier(Modifier::BOLD)),
+        Cell::from("Tokens").style(Style::default().add_modifier(Modifier::BOLD)),
         Cell::from("Last Activity").style(Style::default().add_modifier(Modifier::BOLD)),
     ])
     .height(1);
@@ -71,6 +72,7 @@ fn draw_table(f: &mut Frame, area: Rect, app: &App) {
             };
 
             let status_text = format!("{} {}", session.status.icon(), session.status.label());
+            let token_text = format_tokens(session.input_tokens + session.output_tokens);
             let time_text = relative_time(session.last_activity, now);
 
             let style = if selected {
@@ -82,15 +84,17 @@ fn draw_table(f: &mut Frame, area: Rect, app: &App) {
             Row::new(vec![
                 Cell::from(name).style(style),
                 Cell::from(status_text).style(Style::default().fg(status_color)),
+                Cell::from(token_text).style(Style::default().fg(Color::DarkGray)),
                 Cell::from(time_text).style(Style::default().fg(Color::Gray)),
             ])
         })
         .collect();
 
     let widths = [
-        Constraint::Percentage(45),
-        Constraint::Percentage(25),
-        Constraint::Percentage(30),
+        Constraint::Percentage(40),
+        Constraint::Percentage(22),
+        Constraint::Percentage(12),
+        Constraint::Percentage(26),
     ];
 
     let table = Table::new(rows, widths)

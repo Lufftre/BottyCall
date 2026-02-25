@@ -29,6 +29,37 @@ struct Session: Decodable {
     let tmux_pane: String?
     let git_repo: String?
     let git_branch: String?
+    let input_tokens: Int
+    let output_tokens: Int
+
+    var totalTokens: Int { input_tokens + output_tokens }
+
+    private enum CodingKeys: String, CodingKey {
+        case session_id, slug, status, last_activity, cwd, tmux_pane, git_repo, git_branch
+        case input_tokens, output_tokens
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        session_id   = try c.decode(String.self, forKey: .session_id)
+        slug         = try c.decode(String.self, forKey: .slug)
+        status       = try c.decode(Status.self, forKey: .status)
+        last_activity = try c.decode(Date.self, forKey: .last_activity)
+        cwd          = try c.decodeIfPresent(String.self, forKey: .cwd)
+        tmux_pane    = try c.decodeIfPresent(String.self, forKey: .tmux_pane)
+        git_repo     = try c.decodeIfPresent(String.self, forKey: .git_repo)
+        git_branch   = try c.decodeIfPresent(String.self, forKey: .git_branch)
+        input_tokens  = try c.decodeIfPresent(Int.self, forKey: .input_tokens)  ?? 0
+        output_tokens = try c.decodeIfPresent(Int.self, forKey: .output_tokens) ?? 0
+    }
+}
+
+func formatTokens(_ count: Int) -> String {
+    guard count > 0 else { return "" }
+    if count < 1_000 { return "\(count)" }
+    if count < 10_000 { return String(format: "%.1fk", Double(count) / 1_000) }
+    if count < 1_000_000 { return "\(count / 1_000)k" }
+    return String(format: "%.1fM", Double(count) / 1_000_000)
 }
 
 struct SessionEntry {
